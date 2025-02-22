@@ -1,0 +1,33 @@
+server:
+  http_listen_port: 9080
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    backoff_config:
+      max_retries: 10
+      min_period: 100ms
+      max_period: 5s
+
+scrape_configs:
+  - job_name: kafka-logs
+    kafka:
+      brokers: [kafka:9092]
+      topics: [app-logs]
+      group_id: promtail-consumers
+      labels:
+        job: kafka-logs
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            service: service
+            message: context
+      - labels:
+          level:
+          service:
+      - output:
+          source: message
+    relabel_configs:
+      - action: keep
+        source_labels: [__meta_kafka_topic]
+        regex: app-logs 

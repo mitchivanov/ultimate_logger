@@ -1,0 +1,141 @@
+version: "3.9"
+
+services:
+  # Сервис Kafka – брокер сообщений, используется для передачи данных между сервисами.
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    ports:
+      - "9092:9092"  # Основной порт для клиентов
+      - "9093:9093"  # Контроллер для KRaft режима
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes  # Включение режима KRaft (без Zookeeper)
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller  # Роли ноды
+      - KAFKA_CFG_NODE_ID=1  # Идентификатор ноды
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER  # Имя listener'а контроллера
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092  # Адрес для клиентов
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT  # Внутренняя коммуникация
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093  # Кворум контроллеров
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true  # Автосоздание топиков
+    networks:
+      - observability-net  # Сеть для мониторинга
+      - kafka-net  # Изолированная сеть для Kafka
+    healthcheck:  # Проверка доступности брокера
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+    deploy:
+      resources:
+        limits:
+          memory: 1G  # Лимит памяти для брокера
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    ports:
+      - "8090:8080"  # Web-интерфейс управления
+    restart: always
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local  # Имя кластера в UI
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092  # Подключение к брокеру
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS_HOST=kafka
+    depends_on:
+      - kafka
+    networks:
+      - observability-net  # Доступ к метрикам
+      - kafka-net  # Прямой доступ к Kafka
+
+  fastapi:
+    build:
+      context: ../../services/fastapi  # Путь к Dockerfile приложения
+      dockerfile: Dockerfile
+    container_name: fastapi_app
+    ports:
+      - "8000:8000"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092  # Подключение к Kafka
+      - SERVICE_NAME=fastapi_service
+      - KAFKA_LOG_TOPIC=app-logs  # Топик для логов
+    networks:
+      - observability-net
+    healthcheck:  # Проверка работоспособности эндпоинта
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+
+  loki:
+    image: grafana/loki:2.9.4
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki  # Постоянное хранилище для индексов
+      - ./loki-config.yaml:/etc/loki/config.yaml  # Конфиг парсинга логов
+    networks:
+      - observability-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3100/ready"]
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/config.yml  # Конфиг сбора логов
+    networks:
+      - observability-net
+    depends_on:
+      loki:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:10.3.3
+    ports:
+      - "3000:3000"  # Web-интерфейс Grafana
+    networks:
+      - observability-net
+    depends_on:
+      loki:
+        condition: service_healthy  # Ожидание старта Loki
+
+  # Сервис Prometheus для сбора метрик
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro  # Конфиг сбора метрик
+    ports:
+      - "9090:9090"  # Web-интерфейс Prometheus
+    networks:
+      - observability-net
+
+  # Сервис Node Exporter для системных метрик
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    volumes:  # Монтирование системных каталогов
+      - /proc:/host/proc:ro  # Метаданные процессов
+      - /sys:/host/sys:ro  # Системная информация
+      - /:/rootfs:ro  # Файловая система
+    command: >  # Параметры сбора метрик
+      --path.procfs=/host/proc
+      --path.sysfs=/host/sys
+      --collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($|/)"
+    ports:
+      - "9100:9100"
+    networks:
+      - observability-net
+
+networks:
+  kafka-net:
+    driver: bridge  # Изолированная сеть для Kafka кластера
+  observability-net:
+    name: observability-net
+    driver: bridge
+    external: true  # Сеть должна быть создана заранее
+
+volumes:
+  loki_data:  # Постоянное хранилище для Loki

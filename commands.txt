@@ -1,0 +1,47 @@
+# Все команды выполняются из директории kafka/
+cd kafka
+docker-compose up -d
+
+# Остановка всех контейнеров
+docker-compose down
+
+# Перезапуск после изменений
+docker-compose down
+docker-compose up -d
+
+# Зайти в контейнер кафки
+docker exec -it kafka bash
+
+# Посмотреть логи разных контейнеров
+docker-compose logs -f kafka     # логи кафки
+docker-compose logs -f zookeeper # логи zookeeper
+docker-compose logs -f kafka-ui  # логи веб-интерфейса
+
+# Создать топик для логов (Windows)
+docker exec -it kafka kafka-topics --create --topic logs --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1
+
+# ИЛИ с использованием ^ для переноса строк в Windows
+docker exec -it kafka kafka-topics ^
+    --create ^
+    --topic logs ^
+    --bootstrap-server kafka:29092 ^
+    --partitions 1 ^
+    --replication-factor 1
+
+# Проверить список топиков (Windows)
+docker exec -it kafka kafka-topics --list --bootstrap-server kafka:29092
+
+# Посмотреть детали топика (Windows)
+docker exec -it kafka kafka-topics --describe --topic logs --bootstrap-server kafka:29092
+
+# Веб-интерфейс Kafka UI
+http://localhost:8090
+
+# Очистить все данные (включая тома)
+docker-compose down -v
+
+# Посмотреть состояние контейнеров
+docker-compose ps
+
+# Перезапуск отдельного сервиса
+docker-compose restart kafka 
