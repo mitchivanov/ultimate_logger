@@ -129,6 +129,15 @@ services:
     networks:
       - observability-net
 
+  # Новый сервис для проверки скорости интернета
+  speedtest-exporter:
+    image: m-lab/speedtest-exporter:latest
+    container_name: speedtest-exporter
+    ports:
+      - "9469:9469"  # Порт для метрик экспорта
+    networks:
+      - observability-net
+
 networks:
   kafka-net:
     driver: bridge  # Изолированная сеть для Kafka кластера

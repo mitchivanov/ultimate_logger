@@ -13,6 +13,8 @@
 1. Перейдите в директорию с `docker-compose.yml`:
    ```bash
    cd kafka
+
+2.  docker network create observability-net
    ```
 2. Запустите контейнеры:
    ```bash
