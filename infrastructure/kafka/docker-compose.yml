@@ -131,7 +131,7 @@ services:
 
   # Новый сервис для проверки скорости интернета
   speedtest-exporter:
-    image: m-lab/speedtest-exporter:latest
+    image: jraviles/prometheus_speedtest:latest
     container_name: speedtest-exporter
     ports:
       - "9469:9469"  # Порт для метрик экспорта
